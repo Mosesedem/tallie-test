@@ -238,6 +238,32 @@ Auth routes are prefixed with `/api/v1/auth`.
 - Set maximum reservation duration during peak times
 - Example: Friday 6-9 PM → max 90 minute reservations
 
+#### Automation Behavior
+
+- Reservations that exceed the configured peak-hour `maxDurationMinutes` are automatically rejected during creation and updates.
+- Availability endpoints annotate slots with `isPeakHour` and `maxDuration` to guide users.
+- Waitlist conversions also enforce peak-hour limits and operating hours for consistency.
+
+#### Configure Example (Friday 6–9 PM, 90 min cap)
+
+```bash
+curl -X POST \
+  http://localhost:3000/api/v1/restaurants/{restaurantId}/peak-hours \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "dayOfWeek": 5,
+    "startTime": "18:00",
+    "endTime": "21:00",
+    "maxDurationMinutes": 90
+  }'
+```
+
+Notes:
+
+- `dayOfWeek`: 0=Sunday ... 5=Friday ... 6=Saturday
+- Peak windows must be inside operating hours; overlapping windows are allowed but each has its own cap.
+- Changes are cached and invalidated automatically.
+
 ### Waitlist
 
 - FIFO ordering per restaurant/date

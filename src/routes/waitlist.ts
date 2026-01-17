@@ -2,7 +2,7 @@ import { Router } from "express";
 import { prisma } from "../prisma";
 import { HttpError } from "../middleware/error";
 import { parseISO, startOfDay, addMinutes, addDays } from "date-fns";
-import { hhmmToMinutes } from "../utils/time";
+import { hhmmToMinutes, withinOperatingHours } from "../utils/time";
 import {
   addToWaitlistSchema,
   updateWaitlistSchema,
@@ -10,6 +10,7 @@ import {
 } from "../validation/schemas";
 import { EmailService } from "../utils/email";
 import { SeatingService } from "../utils/seating";
+import { PeakHoursService } from "../utils/peakHours";
 
 const router = Router();
 
@@ -235,6 +236,31 @@ router.post("/:id/convert", async (req, res, next) => {
         startOfDay(entry.preferredDate),
         entry.preferredTime,
       );
+    }
+
+    // Validate operating hours
+    if (
+      !withinOperatingHours(
+        reservationStart,
+        entry.durationMinutes,
+        entry.restaurant.openingTimeMinutes,
+        entry.restaurant.closingTimeMinutes,
+      )
+    ) {
+      throw new HttpError(400, "Reservation time outside operating hours");
+    }
+
+    // Enforce peak hour duration restrictions
+    const peakHourCheck = await PeakHoursService.validatePeakHourDuration(
+      entry.restaurantId,
+      reservationStart,
+      entry.durationMinutes,
+    );
+    if (!peakHourCheck.valid) {
+      throw new HttpError(400, peakHourCheck.message!, {
+        isPeakHour: true,
+        maxDuration: peakHourCheck.maxDuration,
+      });
     }
 
     // Find best table if not specified
