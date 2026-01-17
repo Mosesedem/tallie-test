@@ -3,11 +3,26 @@
 
 generator client {
   provider = "prisma-client"
-  output   = "../generated/prisma"
+  // output   = "../generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  OWNER
+  MANAGER
+  STAFF
+  CUSTOMER
+}
+
+enum StaffRole {
+  OWNER
+  MANAGER
+  HOST
+  SERVER
 }
 
 enum ReservationStatus {
@@ -28,6 +43,7 @@ model Restaurant {
 
   tables       Table[]
   reservations Reservation[]
+  staff        RestaurantStaff[]
 }
 
 model Table {
@@ -47,6 +63,7 @@ model Reservation {
   id              Int               @id @default(autoincrement())
   restaurantId    Int
   tableId         Int
+  userId          String?
   customerName    String
   phone           String
   partySize       Int
@@ -58,7 +75,54 @@ model Reservation {
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   table      Table      @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([restaurantId, startTime])
   @@index([tableId, startTime])
+  @@index([userId])
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  phone     String?
+  role      UserRole @default(CUSTOMER)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  restaurants   RestaurantStaff[]
+  refreshTokens RefreshToken[]
+  reservations  Reservation[]
+}
+
+model RestaurantStaff {
+  id           Int       @id @default(autoincrement())
+  restaurantId Int
+  userId       String
+  role         StaffRole
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, userId])
+  @@index([userId])
+  @@index([restaurantId])
+}
+
+model RefreshToken {
+  token     String   @id
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
