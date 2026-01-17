@@ -3,13 +3,10 @@ import app from "../src/app";
 import { prisma } from "../src/prisma";
 
 beforeAll(async () => {
-  // Reset DB
-  await prisma.$executeRawUnsafe("DROP TABLE IF EXISTS Reservation;");
-  await prisma.$executeRawUnsafe("DROP TABLE IF EXISTS Table;");
-  await prisma.$executeRawUnsafe("DROP TABLE IF EXISTS Restaurant;");
-  // Apply migrations via Prisma schema programmatically
-  // In tests, ensure tables exist by running a simple migration-like creation using Prisma
-  // Instead of raw SQL for portability, we'll rely on migrating in dev and use the same sqlite file for tests.
+  // Clean up data in the correct order (respecting foreign keys)
+  await prisma.reservation.deleteMany();
+  await prisma.table.deleteMany();
+  await prisma.restaurant.deleteMany();
 });
 
 afterAll(async () => {
@@ -21,14 +18,12 @@ describe("Restaurant reservation API", () => {
   let tableId: number;
 
   test("Create restaurant", async () => {
-    const res = await request(app)
-      .post("/restaurants")
-      .send({
-        name: "Tallie Place",
-        openingTime: "10:00",
-        closingTime: "22:00",
-        totalTables: 10,
-      });
+    const res = await request(app).post("/restaurants").send({
+      name: "Tallie Place",
+      openingTime: "10:00",
+      closingTime: "22:00",
+      totalTables: 10,
+    });
     expect(res.status).toBe(201);
     expect(res.body.id).toBeDefined();
     restaurantId = res.body.id;

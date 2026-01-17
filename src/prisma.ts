@@ -1,10 +1,13 @@
+import "dotenv/config";
 import { PrismaClient } from "../generated/prisma/client";
-import { PrismaLibSql } from "@prisma/adapter-libsql";
-import { createClient } from "@libsql/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 
-const libsql = createClient({
-  url: process.env.DATABASE_URL ?? "file:./prisma/dev.db",
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
 });
 
-const adapter = new PrismaLibSql(libsql);
+const adapter = new PrismaPg(pool);
+
 export const prisma = new PrismaClient({ adapter });
