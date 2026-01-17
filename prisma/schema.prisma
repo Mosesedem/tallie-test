@@ -1,0 +1,64 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum ReservationStatus {
+  pending
+  confirmed
+  completed
+  cancelled
+}
+
+model Restaurant {
+  id                 Int      @id @default(autoincrement())
+  name               String   @unique
+  openingTimeMinutes Int // minutes from midnight, e.g., 10:00 AM = 600
+  closingTimeMinutes Int // minutes from midnight, e.g., 10:00 PM = 1320
+  totalTables        Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tables       Table[]
+  reservations Reservation[]
+}
+
+model Table {
+  id           Int @id @default(autoincrement())
+  restaurantId Int
+  number       Int
+  capacity     Int
+
+  restaurant   Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  reservations Reservation[]
+
+  @@unique([restaurantId, number])
+  @@index([restaurantId])
+}
+
+model Reservation {
+  id              Int               @id @default(autoincrement())
+  restaurantId    Int
+  tableId         Int
+  customerName    String
+  phone           String
+  partySize       Int
+  startTime       DateTime
+  durationMinutes Int
+  status          ReservationStatus @default(confirmed)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table      Table      @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, startTime])
+  @@index([tableId, startTime])
+}
