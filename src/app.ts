@@ -11,8 +11,8 @@ const app = express();
 app.use(express.json());
 
 app.use("/api/v1/auth", authRouter);
-app.use("/restaurants", restaurantsRouter);
-app.use("/reservations", reservationsRouter);
+app.use("/api/v1/restaurants", restaurantsRouter);
+app.use("/api/v1/reservations", reservationsRouter);
 
 app.use(errorHandler);
 

@@ -18,7 +18,7 @@ describe("Restaurant reservation API", () => {
   let tableId: number;
 
   test("Create restaurant", async () => {
-    const res = await request(app).post("/restaurants").send({
+    const res = await request(app).post("/api/v1/restaurants").send({
       name: "Tallie Place",
       openingTime: "10:00",
       closingTime: "22:00",
@@ -31,7 +31,7 @@ describe("Restaurant reservation API", () => {
 
   test("Add table", async () => {
     const res = await request(app)
-      .post(`/restaurants/${restaurantId}/tables`)
+      .post(`/api/v1/restaurants/${restaurantId}/tables`)
       .send({ number: 1, capacity: 4 });
     expect(res.status).toBe(201);
     expect(res.body.capacity).toBe(4);
@@ -41,7 +41,7 @@ describe("Restaurant reservation API", () => {
   test("Create reservation and prevent overlap", async () => {
     const start = new Date();
     start.setHours(19, 0, 0, 0); // 7 PM today
-    const res1 = await request(app).post("/reservations").send({
+    const res1 = await request(app).post("/api/v1/reservations").send({
       restaurantId,
       customerName: "Alice",
       phone: "123456",
@@ -53,7 +53,7 @@ describe("Restaurant reservation API", () => {
     expect(res1.status).toBe(201);
 
     const res2 = await request(app)
-      .post("/reservations")
+      .post("/api/v1/reservations")
       .send({
         restaurantId,
         customerName: "Bob",
@@ -85,7 +85,7 @@ describe("Restaurant reservation API", () => {
     // Create a second reservation on the same table at 8 PM for 60m
     const base = new Date();
     base.setHours(20, 0, 0, 0); // 8 PM
-    const createSecond = await request(app).post("/reservations").send({
+    const createSecond = await request(app).post("/api/v1/reservations").send({
       restaurantId,
       customerName: "Dora",
       phone: "000111",
@@ -98,7 +98,7 @@ describe("Restaurant reservation API", () => {
     // Fetch first reservation id by querying the day's reservations
     const dateStr = new Date().toISOString().slice(0, 10);
     const list = await request(app)
-      .get(`/restaurants/${restaurantId}/reservations`)
+      .get(`/api/v1/restaurants/${restaurantId}/reservations`)
       .query({ date: dateStr });
     expect(list.status).toBe(200);
     const first = list.body.find((r: any) => r.customerName === "Alice");
@@ -106,7 +106,7 @@ describe("Restaurant reservation API", () => {
 
     // Attempt to move first to 7:30 PM for 2 hours, overlapping with 8 PM reservation
     const patch = await request(app)
-      .patch(`/reservations/${first.id}`)
+      .patch(`/api/v1/reservations/${first.id}`)
       .send({
         dateTime: new Date(new Date().setHours(19, 30, 0, 0)).toISOString(),
         durationMinutes: 120,
@@ -117,12 +117,12 @@ describe("Restaurant reservation API", () => {
   test("Cancel reservation changes status", async () => {
     const dateStr = new Date().toISOString().slice(0, 10);
     const list = await request(app)
-      .get(`/restaurants/${restaurantId}/reservations`)
+      .get(`/api/v1/restaurants/${restaurantId}/reservations`)
       .query({ date: dateStr });
     const target =
       list.body.find((r: any) => r.customerName === "Bob") ?? list.body[0];
     const cancel = await request(app)
-      .post(`/reservations/${target.id}/cancel`)
+      .post(`/api/v1/reservations/${target.id}/cancel`)
       .send();
     expect(cancel.status).toBe(200);
     expect(cancel.body.status).toBe("cancelled");
