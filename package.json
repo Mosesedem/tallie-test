@@ -1,7 +1,7 @@
 {
   "name": "tallie-test",
   "version": "1.0.0",
-  "description": "",
+  "description": "Restaurant Reservation API with Redis caching, waitlist, and peak hours",
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
@@ -9,19 +9,36 @@
     "start": "node dist/server.js",
     "test": "prisma migrate reset --force && jest --runInBand",
     "migrate": "prisma migrate dev",
-    "generate": "prisma generate"
+    "generate": "prisma generate",
+    "docker:dev": "docker-compose up --build",
+    "docker:dev:down": "docker-compose down",
+    "docker:prod": "docker-compose -f docker-compose.prod.yml up --build -d",
+    "docker:prod:down": "docker-compose -f docker-compose.prod.yml down",
+    "docker:logs": "docker-compose logs -f app",
+    "docker:migrate": "docker-compose exec app npx prisma migrate deploy",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit"
   },
-  "keywords": [],
+  "keywords": [
+    "restaurant",
+    "reservation",
+    "api",
+    "express",
+    "prisma",
+    "redis"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
+    "@getbrevo/brevo": "^1.0.0",
     "bcrypt": "^6.0.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.17.1",
     "prisma": "^7.2.0",

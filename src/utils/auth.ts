@@ -481,9 +481,17 @@ export class AuthService {
     if (!user)
       throw new Error("If this email exists, a reset link has been sent");
     const resetToken = await JWTService.generateAccessToken(user.id);
-    console.log(
-      `[MOCK EMAIL] Password reset link: http://example.com/reset?token=${resetToken}`,
-    );
+    const resetLink = `http://example.com/reset?token=${resetToken}`;
+    try {
+      const { EmailService } = await import("./email");
+      await EmailService.sendPasswordResetEmail(user.email, resetLink);
+    } catch (err) {
+      // Soft-fail if email service isn't configured
+      console.warn(
+        "[EMAIL] Failed to send password reset email:",
+        (err as Error).message,
+      );
+    }
     return { resetToken };
   }
 
@@ -517,18 +525,16 @@ export class AuthController {
     try {
       const { email, password, firstName, lastName, phone } = req.body;
       if (!email || !password || !firstName || !lastName) {
-        res
-          .status(400)
-          .json({
-            success: false,
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "Missing required fields",
-              details: {
-                required: ["email", "password", "firstName", "lastName"],
-              },
+        res.status(400).json({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Missing required fields",
+            details: {
+              required: ["email", "password", "firstName", "lastName"],
             },
-          });
+          },
+        });
         return;
       }
       const result = await AuthService.register({
@@ -540,12 +546,10 @@ export class AuthController {
       });
       res.status(201).json({ success: true, data: result });
     } catch (error: any) {
-      res
-        .status(400)
-        .json({
-          success: false,
-          error: { code: "REGISTRATION_FAILED", message: error.message },
-        });
+      res.status(400).json({
+        success: false,
+        error: { code: "REGISTRATION_FAILED", message: error.message },
+      });
     }
   }
 
@@ -553,26 +557,22 @@ export class AuthController {
     try {
       const { email, password } = req.body;
       if (!email || !password) {
-        res
-          .status(400)
-          .json({
-            success: false,
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "Email and password are required",
-            },
-          });
+        res.status(400).json({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Email and password are required",
+          },
+        });
         return;
       }
       const result = await AuthService.login({ email, password });
       res.status(200).json({ success: true, data: result });
     } catch (error: any) {
-      res
-        .status(401)
-        .json({
-          success: false,
-          error: { code: "LOGIN_FAILED", message: error.message },
-        });
+      res.status(401).json({
+        success: false,
+        error: { code: "LOGIN_FAILED", message: error.message },
+      });
     }
   }
 
@@ -580,26 +580,22 @@ export class AuthController {
     try {
       const { refreshToken } = req.body;
       if (!refreshToken) {
-        res
-          .status(400)
-          .json({
-            success: false,
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "Refresh token is required",
-            },
-          });
+        res.status(400).json({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Refresh token is required",
+          },
+        });
         return;
       }
       const result = await AuthService.refreshToken(refreshToken);
       res.status(200).json({ success: true, data: result });
     } catch (error: any) {
-      res
-        .status(401)
-        .json({
-          success: false,
-          error: { code: "TOKEN_REFRESH_FAILED", message: error.message },
-        });
+      res.status(401).json({
+        success: false,
+        error: { code: "TOKEN_REFRESH_FAILED", message: error.message },
+      });
     }
   }
 
@@ -607,15 +603,13 @@ export class AuthController {
     try {
       const { refreshToken } = req.body;
       if (!refreshToken) {
-        res
-          .status(400)
-          .json({
-            success: false,
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "Refresh token is required",
-            },
-          });
+        res.status(400).json({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Refresh token is required",
+          },
+        });
         return;
       }
       await AuthService.logout(refreshToken);
@@ -623,24 +617,20 @@ export class AuthController {
         .status(200)
         .json({ success: true, message: "Logged out successfully" });
     } catch (error: any) {
-      res
-        .status(400)
-        .json({
-          success: false,
-          error: { code: "LOGOUT_FAILED", message: error.message },
-        });
+      res.status(400).json({
+        success: false,
+        error: { code: "LOGOUT_FAILED", message: error.message },
+      });
     }
   }
 
   static async logoutAll(req: AuthRequest, res: Response): Promise<void> {
     try {
       if (!req.user) {
-        res
-          .status(401)
-          .json({
-            success: false,
-            error: { code: "UNAUTHORIZED", message: "Authentication required" },
-          });
+        res.status(401).json({
+          success: false,
+          error: { code: "UNAUTHORIZED", message: "Authentication required" },
+        });
         return;
       }
       await AuthService.logoutAll(req.user.userId);
@@ -648,37 +638,31 @@ export class AuthController {
         .status(200)
         .json({ success: true, message: "Logged out from all devices" });
     } catch (error: any) {
-      res
-        .status(400)
-        .json({
-          success: false,
-          error: { code: "LOGOUT_FAILED", message: error.message },
-        });
+      res.status(400).json({
+        success: false,
+        error: { code: "LOGOUT_FAILED", message: error.message },
+      });
     }
   }
 
   static async changePassword(req: AuthRequest, res: Response): Promise<void> {
     try {
       if (!req.user) {
-        res
-          .status(401)
-          .json({
-            success: false,
-            error: { code: "UNAUTHORIZED", message: "Authentication required" },
-          });
+        res.status(401).json({
+          success: false,
+          error: { code: "UNAUTHORIZED", message: "Authentication required" },
+        });
         return;
       }
       const { currentPassword, newPassword } = req.body;
       if (!currentPassword || !newPassword) {
-        res
-          .status(400)
-          .json({
-            success: false,
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "Current password and new password are required",
-            },
-          });
+        res.status(400).json({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Current password and new password are required",
+          },
+        });
         return;
       }
       await AuthService.changePassword(
@@ -686,19 +670,15 @@ export class AuthController {
         currentPassword,
         newPassword,
       );
-      res
-        .status(200)
-        .json({
-          success: true,
-          message: "Password changed successfully. Please login again.",
-        });
+      res.status(200).json({
+        success: true,
+        message: "Password changed successfully. Please login again.",
+      });
     } catch (error: any) {
-      res
-        .status(400)
-        .json({
-          success: false,
-          error: { code: "PASSWORD_CHANGE_FAILED", message: error.message },
-        });
+      res.status(400).json({
+        success: false,
+        error: { code: "PASSWORD_CHANGE_FAILED", message: error.message },
+      });
     }
   }
 
@@ -706,28 +686,22 @@ export class AuthController {
     try {
       const { email } = req.body;
       if (!email) {
-        res
-          .status(400)
-          .json({
-            success: false,
-            error: { code: "VALIDATION_ERROR", message: "Email is required" },
-          });
+        res.status(400).json({
+          success: false,
+          error: { code: "VALIDATION_ERROR", message: "Email is required" },
+        });
         return;
       }
       await AuthService.requestPasswordReset(email);
-      res
-        .status(200)
-        .json({
-          success: true,
-          message: "If this email exists, a reset link has been sent",
-        });
+      res.status(200).json({
+        success: true,
+        message: "If this email exists, a reset link has been sent",
+      });
     } catch {
-      res
-        .status(200)
-        .json({
-          success: true,
-          message: "If this email exists, a reset link has been sent",
-        });
+      res.status(200).json({
+        success: true,
+        message: "If this email exists, a reset link has been sent",
+      });
     }
   }
 
@@ -735,44 +709,36 @@ export class AuthController {
     try {
       const { token, newPassword } = req.body;
       if (!token || !newPassword) {
-        res
-          .status(400)
-          .json({
-            success: false,
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "Token and new password are required",
-            },
-          });
+        res.status(400).json({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Token and new password are required",
+          },
+        });
         return;
       }
       await AuthService.resetPassword(token, newPassword);
-      res
-        .status(200)
-        .json({
-          success: true,
-          message:
-            "Password reset successfully. Please login with your new password.",
-        });
+      res.status(200).json({
+        success: true,
+        message:
+          "Password reset successfully. Please login with your new password.",
+      });
     } catch (error: any) {
-      res
-        .status(400)
-        .json({
-          success: false,
-          error: { code: "PASSWORD_RESET_FAILED", message: error.message },
-        });
+      res.status(400).json({
+        success: false,
+        error: { code: "PASSWORD_RESET_FAILED", message: error.message },
+      });
     }
   }
 
   static async getProfile(req: AuthRequest, res: Response): Promise<void> {
     try {
       if (!req.user) {
-        res
-          .status(401)
-          .json({
-            success: false,
-            error: { code: "UNAUTHORIZED", message: "Authentication required" },
-          });
+        res.status(401).json({
+          success: false,
+          error: { code: "UNAUTHORIZED", message: "Authentication required" },
+        });
         return;
       }
       const user = await prisma.user.findUnique({
@@ -793,27 +759,21 @@ export class AuthController {
         },
       });
       if (!user) {
-        res
-          .status(404)
-          .json({
-            success: false,
-            error: { code: "NOT_FOUND", message: "User not found" },
-          });
+        res.status(404).json({
+          success: false,
+          error: { code: "NOT_FOUND", message: "User not found" },
+        });
         return;
       }
-      res
-        .status(200)
-        .json({
-          success: true,
-          data: { user, restaurantAccess: req.user.restaurantAccess },
-        });
+      res.status(200).json({
+        success: true,
+        data: { user, restaurantAccess: req.user.restaurantAccess },
+      });
     } catch (error: any) {
-      res
-        .status(500)
-        .json({
-          success: false,
-          error: { code: "INTERNAL_ERROR", message: error.message },
-        });
+      res.status(500).json({
+        success: false,
+        error: { code: "INTERNAL_ERROR", message: error.message },
+      });
     }
   }
 }

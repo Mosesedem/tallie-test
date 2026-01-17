@@ -5,3 +5,33 @@ node_modules
 /generated/prisma
 
 /dist
+
+pnpm-lock.yaml
+
+# Ignore Docker files
+docker-compose.override.yml
+.dockerignore
+Dockerfile
+# Ignore logs
+logs/
+*.log
+npm-debug.log*
+# Ignore IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+# Ignore OS files
+.DS_Store
+Thumbs.db
+# Ignore test coverage
+coverage/
+# Ignore temporary files
+tmp/
+temp/
+*.tmp
+# Ignore Git files
+.git/
+
+# Ignore Prisma migration lock files
+prisma/migrations/**/migration_lock.toml

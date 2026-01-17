@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../prisma";
 import { HttpError } from "../middleware/error";
-import { addMinutes, parseISO, startOfDay } from "date-fns";
+import { addMinutes, parseISO, startOfDay, format } from "date-fns";
 import { hhmmToMinutes, overlaps, withinOperatingHours } from "../utils/time";
 import {
   addTableSchema,
@@ -9,11 +9,16 @@ import {
   availabilityQuerySchema,
   createRestaurantSchema,
   dailyReservationsQuerySchema,
+  createPeakHoursSchema,
+  updatePeakHoursSchema,
 } from "../validation/schemas";
 import type {
   TableModel,
   ReservationModel,
 } from "../../generated/prisma/models";
+import { CacheService } from "../utils/redis";
+import { PeakHoursService } from "../utils/peakHours";
+import { SeatingService } from "../utils/seating";
 
 const router = Router();
 
@@ -103,31 +108,53 @@ router.get("/:id/availability", async (req, res, next) => {
       throw new HttpError(400, "Requested time outside operating hours");
     }
 
-    const allTables = await prisma.table.findMany({ where: { restaurantId } });
-    const candidateTables = allTables.filter(
-      (t: TableModel) => t.capacity >= parsed.partySize,
+    const dateStr = format(start, "yyyy-MM-dd");
+
+    // Try cache first
+    const cached = await CacheService.getCachedAvailability<{
+      availableTables: TableModel[];
+    }>(restaurantId, dateStr, parsed.partySize, parsed.durationMinutes);
+    if (cached) {
+      return res.json({ ...cached, cached: true });
+    }
+
+    // Use SeatingService for optimized table selection
+    const result = await SeatingService.getAvailableTablesWithScoring(
+      restaurantId,
+      parsed.partySize,
+      start,
+      parsed.durationMinutes,
     );
 
-    const reservations = await prisma.reservation.findMany({
-      where: {
-        restaurantId,
-        startTime: {
-          gte: addMinutes(startOfDay(start), 0),
-          lt: addMinutes(startOfDay(start), 24 * 60),
-        },
-      },
-    });
+    // Check peak hour status
+    const peakHourInfo = await PeakHoursService.checkPeakHour(
+      restaurantId,
+      start,
+      parsed.durationMinutes,
+    );
 
-    const available = candidateTables.filter((table: TableModel) => {
-      const tableReservations = reservations.filter(
-        (r: ReservationModel) => r.tableId === table.id,
-      );
-      return !tableReservations.some((r: ReservationModel) =>
-        overlaps(start, parsed.durationMinutes, r.startTime, r.durationMinutes),
-      );
-    });
+    const response = {
+      availableTables: result.availableTables,
+      recommendations: result.partySizeRecommendations,
+      peakHour: peakHourInfo.isPeakHour
+        ? {
+            active: true,
+            maxDuration: peakHourInfo.maxAllowedDuration,
+            exceedsLimit: peakHourInfo.exceedsMaxDuration,
+          }
+        : undefined,
+    };
 
-    res.json({ availableTables: available });
+    // Cache the result
+    await CacheService.cacheAvailability(
+      restaurantId,
+      dateStr,
+      parsed.partySize,
+      parsed.durationMinutes,
+      response,
+    );
+
+    res.json(response);
   } catch (err) {
     next(err);
   }
@@ -171,6 +198,15 @@ router.get("/:id/available-slots", async (req, res, next) => {
     const step = parsed.stepMinutes ?? 30;
     const date = parseISO(parsed.date);
     const dayStart = startOfDay(date);
+    const dateStr = format(date, "yyyy-MM-dd");
+
+    // Try cache first
+    const cached = await CacheService.getCachedSlots<{
+      slots: { start: string; isPeakHour: boolean }[];
+    }>(restaurantId, dateStr, parsed.partySize, parsed.durationMinutes);
+    if (cached) {
+      return res.json({ ...cached, cached: true });
+    }
 
     const tables = await prisma.table.findMany({
       where: { restaurantId, capacity: { gte: parsed.partySize } },
@@ -179,10 +215,19 @@ router.get("/:id/available-slots", async (req, res, next) => {
       where: {
         restaurantId,
         startTime: { gte: dayStart, lt: addMinutes(dayStart, 24 * 60) },
+        status: { notIn: ["cancelled"] },
       },
     });
 
-    const slots: { start: string }[] = [];
+    // Get peak hours for this restaurant
+    const peakHours = await PeakHoursService.getPeakHours(restaurantId);
+    const dayOfWeek = date.getDay();
+
+    const slots: {
+      start: string;
+      isPeakHour: boolean;
+      maxDuration?: number;
+    }[] = [];
     for (
       let m = restaurant.openingTimeMinutes;
       m + parsed.durationMinutes <= restaurant.closingTimeMinutes;
@@ -202,12 +247,163 @@ router.get("/:id/available-slots", async (req, res, next) => {
           ),
         );
       });
+
       if (hasAvailableTable) {
-        slots.push({ start: slotStart.toISOString() });
+        // Check if this slot is during peak hours
+        const peakHour = peakHours.find(
+          (ph) =>
+            ph.dayOfWeek === dayOfWeek &&
+            m >= ph.startMinutes &&
+            m < ph.endMinutes,
+        );
+
+        slots.push({
+          start: slotStart.toISOString(),
+          isPeakHour: !!peakHour,
+          maxDuration: peakHour?.maxDurationMinutes,
+        });
       }
     }
 
-    res.json({ slots });
+    const response = { slots };
+
+    // Cache the result
+    await CacheService.cacheSlots(
+      restaurantId,
+      dateStr,
+      parsed.partySize,
+      parsed.durationMinutes,
+      response,
+    );
+
+    res.json(response);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================================
+// PEAK HOURS MANAGEMENT
+// ============================================================================
+
+// Get peak hours for a restaurant
+router.get("/:id/peak-hours", async (req, res, next) => {
+  try {
+    const restaurantId = parseInt(req.params.id, 10);
+    if (Number.isNaN(restaurantId))
+      throw new HttpError(400, "Invalid restaurant id");
+
+    const restaurant = await prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+    });
+    if (!restaurant) throw new HttpError(404, "Restaurant not found");
+
+    const peakHours = await PeakHoursService.getPeakHours(restaurantId);
+    const formatted = PeakHoursService.formatPeakHoursForResponse(peakHours);
+
+    res.json({ success: true, data: formatted });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Create/update peak hours configuration
+router.post("/:id/peak-hours", async (req, res, next) => {
+  try {
+    const restaurantId = parseInt(req.params.id, 10);
+    if (Number.isNaN(restaurantId))
+      throw new HttpError(400, "Invalid restaurant id");
+
+    const restaurant = await prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+    });
+    if (!restaurant) throw new HttpError(404, "Restaurant not found");
+
+    const parsed = createPeakHoursSchema.parse(req.body);
+
+    const startMinutes = hhmmToMinutes(parsed.startTime);
+    const endMinutes = hhmmToMinutes(parsed.endTime);
+
+    if (startMinutes >= endMinutes) {
+      throw new HttpError(400, "Start time must be before end time");
+    }
+
+    if (
+      startMinutes < restaurant.openingTimeMinutes ||
+      endMinutes > restaurant.closingTimeMinutes
+    ) {
+      throw new HttpError(400, "Peak hours must be within operating hours");
+    }
+
+    const peakHour = await PeakHoursService.upsertPeakHours(restaurantId, {
+      dayOfWeek: parsed.dayOfWeek,
+      startMinutes,
+      endMinutes,
+      maxDurationMinutes: parsed.maxDurationMinutes,
+    });
+
+    res.status(201).json({ success: true, data: peakHour });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Update peak hours
+router.patch("/:id/peak-hours/:peakHourId", async (req, res, next) => {
+  try {
+    const restaurantId = parseInt(req.params.id, 10);
+    const peakHourId = parseInt(req.params.peakHourId, 10);
+    if (Number.isNaN(restaurantId) || Number.isNaN(peakHourId))
+      throw new HttpError(400, "Invalid id");
+
+    const updates = updatePeakHoursSchema.parse(req.body);
+
+    const existing = await prisma.peakHours.findFirst({
+      where: { id: peakHourId, restaurantId },
+    });
+    if (!existing)
+      throw new HttpError(404, "Peak hour configuration not found");
+
+    const updateData: Record<string, unknown> = {};
+
+    if (updates.startTime) {
+      updateData.startMinutes = hhmmToMinutes(updates.startTime);
+    }
+    if (updates.endTime) {
+      updateData.endMinutes = hhmmToMinutes(updates.endTime);
+    }
+    if (updates.maxDurationMinutes !== undefined) {
+      updateData.maxDurationMinutes = updates.maxDurationMinutes;
+    }
+    if (updates.isActive !== undefined) {
+      updateData.isActive = updates.isActive;
+    }
+
+    const updated = await prisma.peakHours.update({
+      where: { id: peakHourId },
+      data: updateData,
+    });
+
+    // Invalidate cache
+    await CacheService.invalidatePeakHours(restaurantId);
+
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Delete peak hours
+router.delete("/:id/peak-hours/:peakHourId", async (req, res, next) => {
+  try {
+    const restaurantId = parseInt(req.params.id, 10);
+    const peakHourId = parseInt(req.params.peakHourId, 10);
+    if (Number.isNaN(restaurantId) || Number.isNaN(peakHourId))
+      throw new HttpError(400, "Invalid id");
+
+    await PeakHoursService.deletePeakHours(restaurantId, peakHourId);
+
+    res.json({ success: true, message: "Peak hour configuration deleted" });
   } catch (err) {
     next(err);
   }

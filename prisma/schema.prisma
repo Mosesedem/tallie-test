@@ -44,6 +44,8 @@ model Restaurant {
   tables       Table[]
   reservations Reservation[]
   staff        RestaurantStaff[]
+  waitlist     WaitlistEntry[]
+  peakHours    PeakHours[]
 }
 
 model Table {
@@ -94,9 +96,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  restaurants   RestaurantStaff[]
-  refreshTokens RefreshToken[]
-  reservations  Reservation[]
+  restaurants     RestaurantStaff[]
+  refreshTokens   RefreshToken[]
+  reservations    Reservation[]
+  waitlistEntries WaitlistEntry[]
 }
 
 model RestaurantStaff {
@@ -125,4 +128,57 @@ model RefreshToken {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+// Waitlist entry for when no tables are available
+model WaitlistEntry {
+  id              Int            @id @default(autoincrement())
+  restaurantId    Int
+  userId          String?
+  customerName    String
+  email           String?
+  phone           String
+  partySize       Int
+  preferredDate   DateTime // The date customer wants
+  preferredTime   Int // Preferred time in minutes from midnight
+  flexibilityMins Int            @default(60) // How flexible they are (+/- minutes)
+  durationMinutes Int
+  status          WaitlistStatus @default(waiting)
+  notifiedAt      DateTime?
+  expiresAt       DateTime? // When this waitlist entry expires
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId, preferredDate])
+  @@index([restaurantId, status])
+  @@index([userId])
+}
+
+enum WaitlistStatus {
+  waiting
+  notified
+  converted
+  expired
+  cancelled
+}
+
+// Peak hours configuration per restaurant
+model PeakHours {
+  id                 Int      @id @default(autoincrement())
+  restaurantId       Int
+  dayOfWeek          Int // 0=Sunday, 1=Monday, ..., 6=Saturday
+  startMinutes       Int // Start time in minutes from midnight
+  endMinutes         Int // End time in minutes from midnight
+  maxDurationMinutes Int // Maximum reservation duration during peak hours
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, dayOfWeek, startMinutes])
+  @@index([restaurantId, dayOfWeek])
 }
