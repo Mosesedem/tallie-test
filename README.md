@@ -380,8 +380,6 @@ Sent via Brevo (commented out and used basic logging as requested):
 
 ## Project Structure
 
-(NOTE: this structure is AI generated for illustration purposes)
-
 ```
 ├── prisma/
 │   └── schema.prisma       # Database schema
