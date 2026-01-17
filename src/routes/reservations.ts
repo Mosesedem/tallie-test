@@ -7,7 +7,10 @@ import {
   createReservationSchema,
   updateReservationSchema,
 } from "../validation/schemas";
-import type { TableModel, ReservationModel } from "../../generated/prisma/models";
+import type {
+  TableModel,
+  ReservationModel,
+} from "../../generated/prisma/models";
 
 const router = Router();
 
@@ -58,7 +61,9 @@ router.post("/", async (req, res, next) => {
     const tableId =
       parsed.tableId ??
       tables.find((t: TableModel) => {
-        const trs = reservations.filter((r: ReservationModel) => r.tableId === t.id);
+        const trs = reservations.filter(
+          (r: ReservationModel) => r.tableId === t.id,
+        );
         return !trs.some((r: ReservationModel) =>
           overlaps(
             start,
