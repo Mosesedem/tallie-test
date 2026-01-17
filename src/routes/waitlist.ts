@@ -1,8 +1,14 @@
 import { Router } from "express";
 import { prisma } from "../prisma";
 import { HttpError } from "../middleware/error";
-import { parseISO, startOfDay, addMinutes, addDays } from "date-fns";
-import { hhmmToMinutes, withinOperatingHours } from "../utils/time";
+import { parseISO, startOfDay, addMinutes, addDays, format } from "date-fns";
+import {
+  isTimeInRange,
+  compareTimeStrings,
+  hhmmToMinutes,
+  withinOperatingHours,
+  localToUtc,
+} from "../utils/time";
 import {
   addToWaitlistSchema,
   updateWaitlistSchema,
@@ -27,11 +33,10 @@ router.post("/", async (req, res, next) => {
     });
     if (!restaurant) throw new HttpError(404, "Restaurant not found");
 
-    // Validate preferred time is within operating hours
-    const preferredTimeMinutes = hhmmToMinutes(parsed.preferredTime);
+    // Validate preferred time is within operating hours (using HH:MM string comparison)
     if (
-      preferredTimeMinutes < restaurant.openingTimeMinutes ||
-      preferredTimeMinutes >= restaurant.closingTimeMinutes
+      compareTimeStrings(parsed.preferredTime, restaurant.openingTime) < 0 ||
+      compareTimeStrings(parsed.preferredTime, restaurant.closingTime) >= 0
     ) {
       throw new HttpError(400, "Preferred time outside operating hours");
     }
@@ -49,7 +54,7 @@ router.post("/", async (req, res, next) => {
         phone: parsed.phone,
         partySize: parsed.partySize,
         preferredDate,
-        preferredTime: preferredTimeMinutes,
+        preferredTime: parsed.preferredTime, // Now stored as HH:MM string
         flexibilityMins: parsed.flexibilityMins ?? 60,
         durationMinutes: parsed.durationMinutes,
         expiresAt,
@@ -158,7 +163,7 @@ router.patch("/:id", async (req, res, next) => {
       updateData.durationMinutes = updates.durationMinutes;
 
     if (updates.preferredTime) {
-      updateData.preferredTime = hhmmToMinutes(updates.preferredTime);
+      updateData.preferredTime = updates.preferredTime; // Now stored as HH:MM string
     }
 
     const updated = await prisma.waitlistEntry.update({
@@ -231,10 +236,12 @@ router.post("/:id/convert", async (req, res, next) => {
     if (startTime) {
       reservationStart = parseISO(startTime);
     } else {
-      // Use preferred date and time
-      reservationStart = addMinutes(
-        startOfDay(entry.preferredDate),
+      // Use preferred date and time - convert local time to UTC
+      const dateStr = format(entry.preferredDate, "yyyy-MM-dd");
+      reservationStart = localToUtc(
+        dateStr,
         entry.preferredTime,
+        entry.restaurant.timezone,
       );
     }
 
@@ -243,8 +250,9 @@ router.post("/:id/convert", async (req, res, next) => {
       !withinOperatingHours(
         reservationStart,
         entry.durationMinutes,
-        entry.restaurant.openingTimeMinutes,
-        entry.restaurant.closingTimeMinutes,
+        entry.restaurant.openingTime,
+        entry.restaurant.closingTime,
+        entry.restaurant.timezone,
       )
     ) {
       throw new HttpError(400, "Reservation time outside operating hours");
@@ -364,10 +372,12 @@ router.post("/check-availability", async (req, res, next) => {
     const notified: number[] = [];
 
     for (const entry of waitingEntries) {
-      // Calculate preferred start time with flexibility
-      const baseStart = addMinutes(
-        startOfDay(entry.preferredDate),
+      // Calculate preferred start time with flexibility - convert local time to UTC
+      const dateStr = format(entry.preferredDate, "yyyy-MM-dd");
+      const baseStart = localToUtc(
+        dateStr,
         entry.preferredTime,
+        entry.restaurant.timezone,
       );
 
       // Check if any table is available within flexibility window

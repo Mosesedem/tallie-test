@@ -1,9 +1,36 @@
 import { z } from "zod";
 
+// Custom validator for IANA timezone
+const timezoneSchema = z.string().refine(
+  (tz) => {
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  {
+    message:
+      "Invalid IANA timezone (e.g., 'America/New_York', 'Europe/London')",
+  },
+);
+
 export const createRestaurantSchema = z.object({
   name: z.string().min(1),
-  openingTime: z.string().regex(/^\d{2}:\d{2}$/),
-  closingTime: z.string().regex(/^\d{2}:\d{2}$/),
+  timezone: timezoneSchema.default("UTC"),
+  openingTime: z
+    .string()
+    .regex(
+      /^([01]\d|2[0-3]):([0-5]\d)$/,
+      "Time must be in HH:MM format (24-hour)",
+    ),
+  closingTime: z
+    .string()
+    .regex(
+      /^([01]\d|2[0-3]):([0-5]\d)$/,
+      "Time must be in HH:MM format (24-hour)",
+    ),
   totalTables: z.number().int().positive().optional(),
 });
 
@@ -79,7 +106,12 @@ export const addToWaitlistSchema = z.object({
   phone: z.string().min(5),
   partySize: z.number().int().positive(),
   preferredDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  preferredTime: z.string().regex(/^\d{2}:\d{2}$/),
+  preferredTime: z
+    .string()
+    .regex(
+      /^([01]\d|2[0-3]):([0-5]\d)$/,
+      "Time must be in HH:MM format (24-hour)",
+    ),
   flexibilityMins: z.number().int().min(0).max(240).optional(), // 0-4 hours
   durationMinutes: z.number().int().positive(),
 });
@@ -91,7 +123,10 @@ export const updateWaitlistSchema = z.object({
   partySize: z.number().int().positive().optional(),
   preferredTime: z
     .string()
-    .regex(/^\d{2}:\d{2}$/)
+    .regex(
+      /^([01]\d|2[0-3]):([0-5]\d)$/,
+      "Time must be in HH:MM format (24-hour)",
+    )
     .optional(),
   flexibilityMins: z.number().int().min(0).max(240).optional(),
   durationMinutes: z.number().int().positive().optional(),
@@ -111,19 +146,35 @@ export const waitlistQuerySchema = z.object({
 
 export const createPeakHoursSchema = z.object({
   dayOfWeek: z.number().int().min(0).max(6), // 0=Sunday, 6=Saturday
-  startTime: z.string().regex(/^\d{2}:\d{2}$/),
-  endTime: z.string().regex(/^\d{2}:\d{2}$/),
+  startTime: z
+    .string()
+    .regex(
+      /^([01]\d|2[0-3]):([0-5]\d)$/,
+      "Time must be in HH:MM format (24-hour)",
+    ),
+  endTime: z
+    .string()
+    .regex(
+      /^([01]\d|2[0-3]):([0-5]\d)$/,
+      "Time must be in HH:MM format (24-hour)",
+    ),
   maxDurationMinutes: z.number().int().positive().max(480), // Max 8 hours
 });
 
 export const updatePeakHoursSchema = z.object({
   startTime: z
     .string()
-    .regex(/^\d{2}:\d{2}$/)
+    .regex(
+      /^([01]\d|2[0-3]):([0-5]\d)$/,
+      "Time must be in HH:MM format (24-hour)",
+    )
     .optional(),
   endTime: z
     .string()
-    .regex(/^\d{2}:\d{2}$/)
+    .regex(
+      /^([01]\d|2[0-3]):([0-5]\d)$/,
+      "Time must be in HH:MM format (24-hour)",
+    )
     .optional(),
   maxDurationMinutes: z.number().int().positive().max(480).optional(),
   isActive: z.boolean().optional(),

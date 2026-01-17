@@ -1,11 +1,12 @@
 import { prisma } from "../prisma";
 import { CacheService } from "./redis";
+import { isTimeInRange, getLocalTimeString, getLocalDayOfWeek } from "./time";
 
 export interface PeakHourConfig {
   id: number;
   dayOfWeek: number;
-  startMinutes: number;
-  endMinutes: number;
+  startTime: string; // HH:MM format
+  endTime: string; // HH:MM format
   maxDurationMinutes: number;
   isActive: boolean;
 }
@@ -28,7 +29,7 @@ export class PeakHoursService {
     // Fetch from database
     const peakHours = await prisma.peakHours.findMany({
       where: { restaurantId, isActive: true },
-      orderBy: [{ dayOfWeek: "asc" }, { startMinutes: "asc" }],
+      orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
     });
 
     // Cache the result
@@ -40,11 +41,17 @@ export class PeakHoursService {
   /**
    * Check if a reservation time falls within peak hours
    * Returns the applicable peak hour config if found
+   *
+   * @param restaurantId - Restaurant ID
+   * @param reservationStart - Reservation start time in UTC
+   * @param durationMinutes - Reservation duration in minutes
+   * @param timezone - Restaurant's IANA timezone
    */
   static async checkPeakHour(
     restaurantId: number,
     reservationStart: Date,
     durationMinutes: number,
+    timezone: string = "UTC",
   ): Promise<{
     isPeakHour: boolean;
     peakHourConfig?: PeakHourConfig;
@@ -57,16 +64,15 @@ export class PeakHoursService {
       return { isPeakHour: false, exceedsMaxDuration: false };
     }
 
-    const dayOfWeek = reservationStart.getDay(); // 0=Sunday, 6=Saturday
-    const timeMinutes =
-      reservationStart.getHours() * 60 + reservationStart.getMinutes();
+    // Get day and time in restaurant's local timezone
+    const dayOfWeek = getLocalDayOfWeek(reservationStart, timezone);
+    const localTimeStr = getLocalTimeString(reservationStart, timezone);
 
     // Find matching peak hour config
     const matchingPeakHour = peakHours.find(
       (ph) =>
         ph.dayOfWeek === dayOfWeek &&
-        timeMinutes >= ph.startMinutes &&
-        timeMinutes < ph.endMinutes,
+        isTimeInRange(localTimeStr, ph.startTime, ph.endTime),
     );
 
     if (!matchingPeakHour) {
@@ -84,16 +90,23 @@ export class PeakHoursService {
   /**
    * Validate reservation duration against peak hour restrictions
    * Throws an error if duration exceeds peak hour limit
+   *
+   * @param restaurantId - Restaurant ID
+   * @param reservationStart - Reservation start time in UTC
+   * @param durationMinutes - Reservation duration in minutes
+   * @param timezone - Restaurant's IANA timezone
    */
   static async validatePeakHourDuration(
     restaurantId: number,
     reservationStart: Date,
     durationMinutes: number,
+    timezone: string = "UTC",
   ): Promise<{ valid: boolean; message?: string; maxDuration?: number }> {
     const result = await PeakHoursService.checkPeakHour(
       restaurantId,
       reservationStart,
       durationMinutes,
+      timezone,
     );
 
     if (result.isPeakHour && result.exceedsMaxDuration) {
@@ -114,29 +127,29 @@ export class PeakHoursService {
     restaurantId: number,
     config: {
       dayOfWeek: number;
-      startMinutes: number;
-      endMinutes: number;
+      startTime: string; // HH:MM format
+      endTime: string; // HH:MM format
       maxDurationMinutes: number;
     },
   ): Promise<PeakHourConfig> {
     const result = await prisma.peakHours.upsert({
       where: {
-        restaurantId_dayOfWeek_startMinutes: {
+        restaurantId_dayOfWeek_startTime: {
           restaurantId,
           dayOfWeek: config.dayOfWeek,
-          startMinutes: config.startMinutes,
+          startTime: config.startTime,
         },
       },
       update: {
-        endMinutes: config.endMinutes,
+        endTime: config.endTime,
         maxDurationMinutes: config.maxDurationMinutes,
         isActive: true,
       },
       create: {
         restaurantId,
         dayOfWeek: config.dayOfWeek,
-        startMinutes: config.startMinutes,
-        endMinutes: config.endMinutes,
+        startTime: config.startTime,
+        endTime: config.endTime,
         maxDurationMinutes: config.maxDurationMinutes,
       },
     });
@@ -187,16 +200,9 @@ export class PeakHoursService {
       id: ph.id,
       dayOfWeek: ph.dayOfWeek,
       dayName: dayNames[ph.dayOfWeek],
-      startTime: minutesToHHMM(ph.startMinutes),
-      endTime: minutesToHHMM(ph.endMinutes),
+      startTime: ph.startTime, // Already in HH:MM format
+      endTime: ph.endTime, // Already in HH:MM format
       maxDurationMinutes: ph.maxDurationMinutes,
     }));
   }
-}
-
-// Helper function to convert minutes to HH:MM format
-function minutesToHHMM(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
 }

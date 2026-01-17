@@ -2,7 +2,15 @@ import { Router } from "express";
 import { prisma } from "../prisma";
 import { HttpError } from "../middleware/error";
 import { addMinutes, parseISO, startOfDay, format } from "date-fns";
-import { hhmmToMinutes, overlaps, withinOperatingHours } from "../utils/time";
+import {
+  hhmmToMinutes,
+  overlaps,
+  withinOperatingHours,
+  compareTimeStrings,
+  isTimeInRange,
+  getLocalTimeString,
+  getLocalDayOfWeek,
+} from "../utils/time";
 import {
   addTableSchema,
   availableSlotsQuerySchema,
@@ -25,16 +33,18 @@ const router = Router();
 router.post("/", async (req, res, next) => {
   try {
     const parsed = createRestaurantSchema.parse(req.body);
-    const openingMinutes = hhmmToMinutes(parsed.openingTime);
-    const closingMinutes = hhmmToMinutes(parsed.closingTime);
-    if (openingMinutes >= closingMinutes) {
+
+    // Validate opening time is before closing time
+    if (compareTimeStrings(parsed.openingTime, parsed.closingTime) >= 0) {
       throw new HttpError(400, "Opening time must be before closing time");
     }
+
     const restaurant = await prisma.restaurant.create({
       data: {
         name: parsed.name,
-        openingTimeMinutes: openingMinutes,
-        closingTimeMinutes: closingMinutes,
+        timezone: parsed.timezone,
+        openingTime: parsed.openingTime,
+        closingTime: parsed.closingTime,
         totalTables: parsed.totalTables,
       },
     });
@@ -101,8 +111,9 @@ router.get("/:id/availability", async (req, res, next) => {
       !withinOperatingHours(
         start,
         parsed.durationMinutes,
-        restaurant.openingTimeMinutes,
-        restaurant.closingTimeMinutes,
+        restaurant.openingTime,
+        restaurant.closingTime,
+        restaurant.timezone,
       )
     ) {
       throw new HttpError(400, "Requested time outside operating hours");
@@ -223,14 +234,18 @@ router.get("/:id/available-slots", async (req, res, next) => {
     const peakHours = await PeakHoursService.getPeakHours(restaurantId);
     const dayOfWeek = date.getDay();
 
+    // Convert opening/closing times to minutes for slot iteration
+    const openingMinutes = hhmmToMinutes(restaurant.openingTime);
+    const closingMinutes = hhmmToMinutes(restaurant.closingTime);
+
     const slots: {
       start: string;
       isPeakHour: boolean;
       maxDuration?: number;
     }[] = [];
     for (
-      let m = restaurant.openingTimeMinutes;
-      m + parsed.durationMinutes <= restaurant.closingTimeMinutes;
+      let m = openingMinutes;
+      m + parsed.durationMinutes <= closingMinutes;
       m += step
     ) {
       const slotStart = addMinutes(dayStart, m);
@@ -250,11 +265,14 @@ router.get("/:id/available-slots", async (req, res, next) => {
 
       if (hasAvailableTable) {
         // Check if this slot is during peak hours
+        const currentTimeStr = getLocalTimeString(
+          slotStart,
+          restaurant.timezone,
+        );
         const peakHour = peakHours.find(
           (ph) =>
             ph.dayOfWeek === dayOfWeek &&
-            m >= ph.startMinutes &&
-            m < ph.endMinutes,
+            isTimeInRange(currentTimeStr, ph.startTime, ph.endTime),
         );
 
         slots.push({
@@ -321,24 +339,23 @@ router.post("/:id/peak-hours", async (req, res, next) => {
 
     const parsed = createPeakHoursSchema.parse(req.body);
 
-    const startMinutes = hhmmToMinutes(parsed.startTime);
-    const endMinutes = hhmmToMinutes(parsed.endTime);
-
-    if (startMinutes >= endMinutes) {
+    // Validate start time is before end time
+    if (compareTimeStrings(parsed.startTime, parsed.endTime) >= 0) {
       throw new HttpError(400, "Start time must be before end time");
     }
 
+    // Validate peak hours are within operating hours
     if (
-      startMinutes < restaurant.openingTimeMinutes ||
-      endMinutes > restaurant.closingTimeMinutes
+      compareTimeStrings(parsed.startTime, restaurant.openingTime) < 0 ||
+      compareTimeStrings(parsed.endTime, restaurant.closingTime) > 0
     ) {
       throw new HttpError(400, "Peak hours must be within operating hours");
     }
 
     const peakHour = await PeakHoursService.upsertPeakHours(restaurantId, {
       dayOfWeek: parsed.dayOfWeek,
-      startMinutes,
-      endMinutes,
+      startTime: parsed.startTime,
+      endTime: parsed.endTime,
       maxDurationMinutes: parsed.maxDurationMinutes,
     });
 
@@ -367,10 +384,10 @@ router.patch("/:id/peak-hours/:peakHourId", async (req, res, next) => {
     const updateData: Record<string, unknown> = {};
 
     if (updates.startTime) {
-      updateData.startMinutes = hhmmToMinutes(updates.startTime);
+      updateData.startTime = updates.startTime;
     }
     if (updates.endTime) {
-      updateData.endMinutes = hhmmToMinutes(updates.endTime);
+      updateData.endTime = updates.endTime;
     }
     if (updates.maxDurationMinutes !== undefined) {
       updateData.maxDurationMinutes = updates.maxDurationMinutes;

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { prisma } from "../prisma";
 import { HttpError } from "../middleware/error";
 import { addMinutes, parseISO, startOfDay, format } from "date-fns";
-import { overlaps, withinOperatingHours } from "../utils/time";
+import { overlaps, withinOperatingHours, localToUtc } from "../utils/time";
 import {
   createReservationSchema,
   updateReservationSchema,
@@ -33,23 +33,25 @@ router.post("/", async (req, res, next) => {
 
     const start = parseISO(parsed.dateTime);
 
-    // Validate operating hours
+    // Validate operating hours (timezone-aware)
     if (
       !withinOperatingHours(
         start,
         parsed.durationMinutes,
-        restaurant.openingTimeMinutes,
-        restaurant.closingTimeMinutes,
+        restaurant.openingTime,
+        restaurant.closingTime,
+        restaurant.timezone,
       )
     ) {
       throw new HttpError(400, "Reservation time outside operating hours");
     }
 
-    // Validate peak hour duration restrictions
+    // Validate peak hour duration restrictions (timezone-aware)
     const peakHourCheck = await PeakHoursService.validatePeakHourDuration(
       parsed.restaurantId,
       start,
       parsed.durationMinutes,
+      restaurant.timezone,
     );
     if (!peakHourCheck.valid) {
       throw new HttpError(400, peakHourCheck.message!, {
@@ -338,23 +340,25 @@ router.patch("/:id", async (req, res, next) => {
       }
     }
 
-    // Operating hours check
+    // Operating hours check (timezone-aware)
     if (
       !withinOperatingHours(
         newStart,
         newDuration,
-        restaurant.openingTimeMinutes,
-        restaurant.closingTimeMinutes,
+        restaurant.openingTime,
+        restaurant.closingTime,
+        restaurant.timezone,
       )
     ) {
       throw new HttpError(400, "Reservation time outside operating hours");
     }
 
-    // Peak hour check for modified reservations
+    // Peak hour check for modified reservations (timezone-aware)
     const peakHourCheck = await PeakHoursService.validatePeakHourDuration(
       existing.restaurantId,
       newStart,
       newDuration,
+      restaurant.timezone,
     );
     if (!peakHourCheck.valid) {
       throw new HttpError(400, peakHourCheck.message!, {
@@ -655,9 +659,12 @@ async function checkWaitlistAfterCancellation(
   });
 
   for (const entry of waitingEntries) {
-    const baseStart = addMinutes(
-      startOfDay(entry.preferredDate),
+    // Convert local preferred time to UTC for availability check
+    const dateStr = format(entry.preferredDate, "yyyy-MM-dd");
+    const baseStart = localToUtc(
+      dateStr,
       entry.preferredTime,
+      entry.restaurant.timezone,
     );
 
     const result = await SeatingService.findOptimalTable(
