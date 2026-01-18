@@ -1,15 +1,17 @@
 # Tallie Restaurant Reservation API
 
-A production-ready REST API for managing restaurants, tables, and reservations — with timezone-aware scheduling, authentication, roles, permissions, Redis caching, waitlist functionality, and peak hours management.
+```
+Restaurant in Lagos (Africa/Lagos)
 
 ## Stack
-
-- Node.js + Express
-- TypeScript
+Customer in London books for "9 PM" (their time):
+  - If they want 9 PM Lagos time → dateTime: "2026-01-17T20:00:00.000Z"
+  - If they want 9 PM London time (10 PM Lagos) → dateTime: "2026-01-17T21:00:00.000Z"
 - Prisma ORM + Postgres
-- Redis (caching & rate limiting)
+Frontend must clarify: "All times are in restaurant's local time (West Africa)"
 - Jest + Supertest (tests)
-- JWT Authentication + RBAC
+```
+
 - Docker & Docker Compose
 - date-fns + date-fns-tz (timezone handling)
 
@@ -102,14 +104,14 @@ This API uses **timezone-aware scheduling**. Understanding this is critical for 
 
 | Concept        | Format            | Example                      | Description                   |
 | -------------- | ----------------- | ---------------------------- | ----------------------------- |
-| **Timezone**   | IANA string       | `"America/New_York"`         | Restaurant's local timezone   |
+| **Timezone**   | IANA string       | `"Africa/Lagos"`             | Restaurant's local timezone   |
 | **Local Time** | `HH:MM` (24-hour) | `"18:30"`                    | Time in restaurant's timezone |
 | **DateTime**   | ISO 8601 UTC      | `"2026-01-17T23:30:00.000Z"` | Absolute moment in time       |
 | **Date**       | `YYYY-MM-DD`      | `"2026-01-17"`               | Calendar date                 |
 
 ### How It Works
 
-1. **Restaurants store their timezone** (e.g., `"America/New_York"`)
+1. **Restaurants store their timezone** (e.g., `"Africa/Lagos"`)
 2. **Operating hours, peak hours, and preferred times** are in **local time** (`HH:MM` format)
 3. **Reservation times** are sent as **ISO 8601 UTC strings**
 4. **The API converts UTC to local time** using the restaurant's timezone for validation
@@ -119,12 +121,12 @@ This API uses **timezone-aware scheduling**. Understanding this is critical for 
 #### When Creating a Reservation:
 
 ```javascript
-// User selects: January 17, 2026 at 6:30 PM (restaurant is in New York)
-// Restaurant timezone: "America/New_York"
+// User selects: January 17, 2026 at 6:30 PM (restaurant is in Lagos)
+// Restaurant timezone: "Africa/Lagos"
 
 // Convert local selection to UTC before sending to API
 const localDate = new Date(2026, 0, 17, 18, 30, 0); // Jan 17, 2026 6:30 PM local
-const utcString = localDate.toISOString(); // "2026-01-17T23:30:00.000Z" (if user is in NY)
+const utcString = localDate.toISOString(); // "2026-01-17T17:30:00.000Z" (6:30 PM Lagos ⇒ 17:30Z)
 
 // Send to API
 fetch("/api/v1/reservations", {
@@ -143,13 +145,13 @@ fetch("/api/v1/reservations", {
 #### When Displaying Times:
 
 ```javascript
-// API returns: startTime: "2026-01-17T23:30:00.000Z"
-// Restaurant timezone: "America/New_York"
+// API returns: startTime: "2026-01-17T17:30:00.000Z"
+// Restaurant timezone: "Africa/Lagos"
 
 // Convert UTC to restaurant's local time for display
-const utcDate = new Date("2026-01-17T23:30:00.000Z");
+const utcDate = new Date("2026-01-17T17:30:00.000Z");
 const displayTime = utcDate.toLocaleString("en-US", {
-  timeZone: "America/New_York",
+  timeZone: "Africa/Lagos",
   hour: "2-digit",
   minute: "2-digit",
   hour12: true,
@@ -160,6 +162,7 @@ const displayTime = utcDate.toLocaleString("en-US", {
 
 | Region           | Timezone String       |
 | ---------------- | --------------------- |
+| Nigeria (WAT)    | `Africa/Lagos`        |
 | US Eastern       | `America/New_York`    |
 | US Central       | `America/Chicago`     |
 | US Mountain      | `America/Denver`      |
@@ -189,8 +192,8 @@ Creates a new restaurant with timezone configuration.
 
 ```json
 {
-  "name": "The Italian Place",
-  "timezone": "America/New_York",
+  "name": "Calabar Kitchen",
+  "timezone": "Africa/Lagos",
   "openingTime": "10:00",
   "closingTime": "22:00",
   "totalTables": 15
@@ -210,8 +213,8 @@ Creates a new restaurant with timezone configuration.
 ```json
 {
   "id": 1,
-  "name": "The Italian Place",
-  "timezone": "America/New_York",
+  "name": "Calabar Kitchen",
+  "timezone": "Africa/Lagos",
   "openingTime": "10:00",
   "closingTime": "22:00",
   "totalTables": 15,
@@ -247,8 +250,8 @@ Returns restaurant details including timezone and all tables.
 ```json
 {
   "id": 1,
-  "name": "The Italian Place",
-  "timezone": "America/New_York",
+  "name": "Calabar Kitchen",
+  "timezone": "Africa/Lagos",
   "openingTime": "10:00",
   "closingTime": "22:00",
   "totalTables": 15,
@@ -270,7 +273,7 @@ Check table availability for a specific time slot.
 | `durationMinutes` | number | ✅ | Reservation duration in minutes |
 | `partySize` | number | ✅ | Number of guests |
 
-**Example:** `GET /api/v1/restaurants/1/availability?dateTime=2026-01-17T23:30:00.000Z&durationMinutes=90&partySize=4`
+**Example:** `GET /api/v1/restaurants/1/availability?dateTime=2026-01-17T17:30:00.000Z&durationMinutes=90&partySize=4`
 
 **Response:**
 
@@ -411,7 +414,7 @@ Creates a new reservation with intelligent table assignment.
   "phone": "555-123-4567",
   "email": "john@example.com",
   "partySize": 4,
-  "dateTime": "2026-01-17T23:30:00.000Z",
+  "dateTime": "2026-01-17T17:30:00.000Z",
   "durationMinutes": 90,
   "tableId": 1,
   "userId": "uuid-optional"
@@ -442,7 +445,7 @@ Creates a new reservation with intelligent table assignment.
     "customerName": "John Doe",
     "phone": "555-123-4567",
     "partySize": 4,
-    "startTime": "2026-01-17T23:30:00.000Z",
+    "startTime": "2026-01-17T17:30:00.000Z",
     "durationMinutes": 90,
     "status": "confirmed"
   },
@@ -720,12 +723,12 @@ Notes:
 ### Scenario 1: Normal Booking
 
 ```
-Restaurant: "The Italian Place" (timezone: America/New_York)
+Restaurant: "Hilda Bassey Restaurant" (timezone: Africa/Lagos)
 Operating hours: 10:00 AM - 10:00 PM (local)
 Table 1: capacity 4
 
 Frontend sends:
-  dateTime: "2026-01-17T00:00:00.000Z" (= 7 PM Eastern on Jan 16)
+  dateTime: "2026-01-17T18:00:00.000Z" (= 7 PM Lagos on Jan 17)
   partySize: 3
   durationMinutes: 120
 
@@ -735,7 +738,7 @@ Result: ✅ Assigned to Table 1 (1 extra seat)
 ### Scenario 2: Overlap Detection
 
 ```
-Existing: Table 1 booked 7-9 PM (Eastern)
+Existing: Table 1 booked 7-9 PM (Lagos/WAT)
 Request: Table 1 at 8 PM for 2 hours
 
 Result: ❌ Conflict
@@ -867,7 +870,7 @@ All errors follow this format:
   "details": [
     {
       "path": ["timezone"],
-      "message": "Invalid IANA timezone (e.g., 'America/New_York', 'Europe/London')"
+      "message": "Invalid IANA timezone (e.g., 'Africa/Lagos', 'Europe/London')"
     }
   ]
 }
@@ -921,7 +924,7 @@ npm test
 
 ### Timezone Architecture
 
-- **Restaurants store IANA timezone** (e.g., `"America/New_York"`) for proper DST handling
+- **Restaurants store IANA timezone** (e.g., `"Africa/Lagos"`) for proper DST handling
 - **Operating hours and peak hours** stored as local time strings (`HH:MM`) — no timezone conversion needed when configuring
 - **Reservation times** stored as UTC `DateTime` in the database for consistent querying
 - **Validation** converts UTC to restaurant's local time for operating hours and peak hours checks
@@ -1131,12 +1134,12 @@ import { zonedTimeToUtc, utcToZonedTime, format } from "date-fns-tz";
 
 // Convert user's local selection to UTC for API
 const userSelectedLocal = new Date(2026, 0, 17, 18, 30); // 6:30 PM
-const timezone = "America/New_York";
+const timezone = "Africa/Lagos";
 const utcDate = zonedTimeToUtc(userSelectedLocal, timezone);
-const isoString = utcDate.toISOString(); // Send this to API
+const isoString = utcDate.toISOString(); // e.g., "2026-01-17T17:30:00.000Z" (Lagos)
 
 // Convert API response (UTC) to display in restaurant's timezone
-const apiResponse = "2026-01-17T23:30:00.000Z";
+const apiResponse = "2026-01-17T17:30:00.000Z";
 const localDate = utcToZonedTime(new Date(apiResponse), timezone);
 const displayString = format(localDate, "h:mm a", { timeZone: timezone }); // "6:30 PM"
 ```
